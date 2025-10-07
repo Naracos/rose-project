@@ -3,9 +3,23 @@ const { logError } = require('../utils/logError');
 
 // Rôles autorisés à utiliser la commande (filtrer les undefined)
 const allowedRoleIds = [
-  process.env.ROLE_ID_WELCOMERS,
-  process.env.ROLE_ID_ADMIN,
-].filter(id => id); // Filtre les valeurs undefined
+  // Rôles administrateurs
+  process.env.ROLE_ID_ADMIN1,      // Clé fonda
+  process.env.ROLE_ID_ADMIN2,      // Clé admin
+  process.env.ROLE_ID_FONDATEURS,    // Rôle Fonda
+    process.env.ROLE_ID_RESPONSABLES, // Rôle Responsable
+
+  // Rôles bénévoles (tous peuvent ajouter le rôle "membre vérifié")
+  process.env.ROLE_ID_WELCOMERS,    // Rôle Welcomer
+  process.env.ROLE_ID_MODERATEURS,  // Rôle Médiation
+  process.env.ROLE_ID_ANIMATEURS,   // Rôle Animateur/ice
+  process.env.ROLE_ID_TECHNICIENS,   // Rôle Technicien
+  process.env.ROLE_ID_PHOTOS,       // Rôle Vidéo / Photographe
+  process.env.ROLE_ID_CM,           // Rôle Community Manager
+  process.env.ROLE_ID_HELPERS,      // Rôle Helpers
+  process.env.ROLE_ID_CONSULTANTS   // Rôle Consultant
+].filter(id => id); // Filtre les valeurs undefined ou vides
+
 
 // Rôles disponibles pour l'ajout (filtrer les undefined)
 const addableRoles = {
