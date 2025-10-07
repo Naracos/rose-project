@@ -4,12 +4,25 @@ const { Client, Collection, GatewayIntentBits } = require('discord.js');
 const { REST, Routes } = require('discord.js'); // Ajout pour l'enregistrement des commandes
 require('dotenv').config();
 const { logError } = require('./utils/logError');
+const cron = require('node-cron');
 
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
 const guildId = process.env.GUILD_ID;
 
 console.log('[DEBUG] Démarrage du bot...');
+
+
+// Planifie le nettoyage tous les jours à 3h du matin
+cron.schedule('0 22 04 * *', () => {
+  const event = require('./utils/cleanOldForumPosts');
+  event.execute(client);
+}, {
+  scheduled: true,
+  timezone: "Europe/Paris"
+});
+
+console.log("⏰ Tâche de nettoyage des posts du forum planifiée (tous les jours à 3h).");
 
 // Vérifications préliminaires
 if (!token || !clientId || !guildId) {

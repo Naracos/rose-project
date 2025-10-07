@@ -13,7 +13,8 @@
     "discord-api-types": "^0.38.15",
     "discord.js": "^14.22.1",
     "dotenv": "^17.2.1",
-    "mongodb": "^6.19.0"
+    "mongodb": "^6.19.0",
+    "node-cron": "^4.2.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
