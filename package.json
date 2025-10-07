@@ -1,0 +1,17 @@
+{
+  "name": "rose-project",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:bot\" \"npm run dev:web\"",
+    "dev:api": "cd api && npm run dev",
+    "dev:bot": "cd bot && npm run dev",
+    "dev:web": "cd web && npm run dev",
+    "build": "docker-compose build",
+    "start": "docker-compose up",
+    "down": "docker-compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
