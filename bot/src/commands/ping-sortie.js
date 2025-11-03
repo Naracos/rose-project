@@ -1,127 +1,141 @@
-// bot/src/commands/ping-sortie.js
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+// bot/src/commands/ping-participants.js
+const { SlashCommandBuilder } = require('discord.js');
 const { logError } = require('../utils/logError');
+const logAction = require('../utils/actionLogger');
 
-// Rôles autorisés à utiliser la commande (à configurer dans ton .env)
-const allowedRoleIds = [
-  process.env.ROLE_ID_ADMIN,
-  process.env.ROLE_ID_MODERATOR,
-  process.env.ROLE_ID_ORGANIZER
-].filter(id => id);
+// Cooldown en secondes (par message de sortie)
+const COOLDOWN_SECONDS = 60;
+const cooldowns = new Map(); // key: messageId -> timestamp (ms)
 
 module.exports = {
-  data: new SlashCommandBuilder()
-    .setName('ping-sortie')
-    .setDescription("Ping les utilisateurs ayant réagi à une sortie avec un emoji spécifique")
-    .addStringOption(option =>
-      option.setName('emoji')
-        .setDescription('Emoji pour filtrer les réactions (ex: ✅)')
-        .setRequired(true))
-    .addStringOption(option =>
-      option.setName('message-id')
-        .setDescription('ID du message principal de la sortie')
-        .setRequired(true))
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
-    .setDMPermission(false),
+    data: new SlashCommandBuilder()
+        .setName('ping-participants')
+        .setDescription('Mentionne tous les membres ayant cliqué sur la réaction ✅ d’un post de sortie.')
+        .addStringOption(opt =>
+            opt.setName('message')
+               .setDescription('ID du message ou lien (optionnel).')
+               .setRequired(false)
+        ),
+    async execute(interaction) {
+        try {
+            const input = interaction.options.getString('message')?.trim();
 
-  async execute(interaction) {
-    try {
-      await interaction.deferReply({ ephemeral: true });
+            await logAction(interaction.client, 'Commande /ping-participants lancée', interaction.user, {
+                input,
+                channelId: interaction.channelId
+            });
 
-      // 1. Vérification des permissions
-      const hasPermission = allowedRoleIds.length > 0 &&
-                          interaction.member.roles.cache.some(role => allowedRoleIds.includes(role.id));
+            let channel = await interaction.client.channels.fetch(interaction.channelId);
+            if (!channel) {
+                await logAction(interaction.client, 'Impossible de récupérer le canal lors de /ping-participants', interaction.user, { channelId: interaction.channelId });
+                return interaction.reply({ content: "Impossible de récupérer le canal.", ephemeral: true });
+            }
 
-      if (!hasPermission) {
-        return interaction.editReply("❌ Vous n'avez pas la permission d'utiliser cette commande.");
-      }
+            // Si option fournie, tenter d'extraire channelId/messageId depuis le lien ou "channel:message"
+            let messageId = null;
+            if (input) {
+                let tempChannelId = channel.id;
+                const linkMatch = input.match(/\/channels\/(\d+)\/(\d+)\/(\d+)/);
+                if (linkMatch) {
+                    tempChannelId = linkMatch[2];
+                    messageId = linkMatch[3];
+                } else {
+                    const parts = input.split(/[\/:]/).filter(Boolean);
+                    if (parts.length === 2 && /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
+                        tempChannelId = parts[0];
+                        messageId = parts[1];
+                    } else if (/^\d+$/.test(input)) {
+                        messageId = input;
+                    }
+                }
+                if (tempChannelId !== channel.id) {
+                    channel = await interaction.client.channels.fetch(tempChannelId).catch(() => null) || channel;
+                }
+            }
 
-      // 2. Récupération des paramètres
-      const messageId = interaction.options.getString('message-id');
-      const emojiInput = interaction.options.getString('emoji');
+            // Si pas d'ID fourni et qu'on est dans un thread, utiliser le message de base (starter message)
+            let msg = null;
+            if (!messageId && channel.isThread?.()) {
+                msg = await channel.fetchStarterMessage().catch(() => null);
+            }
 
-      // 3. Récupération du message principal
-      const message = await interaction.channel.messages.fetch(messageId).catch(() => null);
-      if (!message) {
-        return interaction.editReply("❌ Message introuvable. Vérifiez l'ID du message.");
-      }
+            // Si on a un messageId (fourni ou extrait), récupérer ce message
+            if (!msg && messageId) {
+                msg = await channel.messages.fetch(messageId).catch(() => null);
+            }
 
-      // 4. Vérification que l'utilisateur est l'OP ou a les permissions
-      const isOP = message.author.id === interaction.user.id;
-      if (!isOP && !hasPermission) {
-        return interaction.editReply("❌ Vous devez être l'auteur du message ou avoir les permissions requises.");
-      }
+            if (!msg) {
+                await logAction(interaction.client, 'Message introuvable pour /ping-participants', interaction.user, { input, channelId: channel?.id });
+                return interaction.reply({ content: "Message introuvable. Fournissez un lien/ID ou exécutez la commande depuis le thread du post.", ephemeral: true });
+            }
 
-      // 5. Trouver l'emoji (peut être un emoji standard ou personnalisé)
-      let emojiToFind;
-      try {
-        // Essaye de trouver l'emoji dans le cache ou par son nom
-        emojiToFind = emojiInput.match(/<a?:[a-zA-Z0-9_]+:(\d+)>/)
-          ? emojiInput.match(/<a?:[a-zA-Z0-9_]+:(\d+)>/)[0]  // Emoji personnalisé
-          : emojiInput;  // Emoji standard
-      } catch (e) {
-        return interaction.editReply("❌ Format d'emoji invalide. Utilisez un emoji standard (ex: ✅) ou un emoji personnalisé (ex: <:nom:123456789>).");
-      }
+            // Vérifier que l'utilisateur est l'organisateur (auteur du message)
+            const organizerId = msg.author?.id;
+            if (!organizerId) {
+                await logAction(interaction.client, 'Impossible de déterminer l\'organisateur du post', interaction.user, { messageId: msg.id });
+                return interaction.reply({ content: "Impossible de déterminer l'organisateur du post.", ephemeral: true });
+            }
+            if (interaction.user.id !== organizerId) {
+                await logAction(interaction.client, 'Accès refusé à /ping-participants (non-organisateur)', interaction.user, { messageId: msg.id, organizerId });
+                return interaction.reply({ content: "Seul l'organisateur du post peut utiliser cette commande.", ephemeral: true });
+            }
 
-      // 6. Récupération des réactions avec l'emoji spécifié
-      const reaction = message.reactions.cache.find(r =>
-        r.emoji.name === emojiToFind ||
-        r.emoji.id === emojiToFind.replace(/<a?:[a-zA-Z0-9_]+:(\d+)>/g, '$1')
-      );
+            // Antispam / cooldown par message
+            const now = Date.now();
+            const last = cooldowns.get(msg.id) || 0;
+            const elapsed = (now - last) / 1000;
+            if (elapsed < COOLDOWN_SECONDS) {
+                const remaining = Math.ceil(COOLDOWN_SECONDS - elapsed);
+                await logAction(interaction.client, 'Tentative /ping-participants bloquée par cooldown', interaction.user, { messageId: msg.id, remaining });
+                return interaction.reply({ content: `Veuillez attendre ${remaining}s avant de relancer la commande pour ce post.`, ephemeral: true });
+            }
+            // enregistrer l'utilisation
+            cooldowns.set(msg.id, now);
 
-      if (!reaction) {
-        return interaction.editReply(`❌ Aucun utilisateur n'a réagi avec ${emojiInput} à ce message.`);
-      }
+            // Optionnel: nettoyer les entrées trop vieilles (pour éviter mémoire infinie)
+            // (simple balayage périodique)
+            for (const [key, ts] of cooldowns) {
+                if ((now - ts) / 1000 > COOLDOWN_SECONDS * 5) { // garder 5x le TTL
+                    cooldowns.delete(key);
+                }
+            }
 
-      // 7. Récupération des utilisateurs ayant réagi
-      const users = await reaction.users.fetch();
-      const userIds = users.filter(user => !user.bot).map(user => user.id);
+            // Trouver la réaction ✅
+            const reaction = msg.reactions.cache.get('✅') || msg.reactions.cache.find(r => r.emoji?.name === '✅');
+            if (!reaction) {
+                await logAction(interaction.client, 'Aucune réaction ✅ trouvée pour /ping-participants', interaction.user, { messageId: msg.id });
+                return interaction.reply({ content: "Aucune réaction ✅ trouvée sur ce message.", ephemeral: true });
+            }
 
-      if (userIds.length === 0) {
-        return interaction.editReply(`❌ Aucun utilisateur (non-bot) n'a réagi avec ${emojiInput}.`);
-      }
+            // Récupérer les utilisateurs ayant réagi
+            const users = await reaction.users.fetch();
+            const nonBotUsers = users.filter(u => !u.bot);
+            if (nonBotUsers.size === 0) {
+                await logAction(interaction.client, 'Aucun participant (hors bots) pour /ping-participants', interaction.user, { messageId: msg.id });
+                return interaction.reply({ content: "Aucun participant (hors bots) n'a réagi avec ✅.", ephemeral: true });
+            }
 
-      // 8. Envoi du ping
-      const pingMessage = await interaction.channel.send({
-        content: `${userIds.map(id => `<@${id}>`).join(' ')}\n\n` +
-                 `🔔 **Rappel pour la sortie** : ${message.content.substring(0, 150)}${message.content.length > 150 ? '...' : ''}\n` +
-                 `(Réaction: ${emojiInput})\n` +
-                 `[Voir le message original](${message.url})`,
-        allowedMentions: { users: userIds }
-      });
+            const userIds = nonBotUsers.map(u => u.id);
+            const mentions = nonBotUsers.map(u => `<@${u.id}>`).join(' ');
+            await interaction.reply({
+                content: `Participants (${userIds.length}) :\n${mentions}`,
+                allowedMentions: { users: userIds }
+            });
 
-      // 9. Confirmation
-      await interaction.editReply({
-        content: `✅ ${userIds.length} utilisateur(s) notifié(s) avec succès !`,
-        ephemeral: true
-      });
-
-      // 10. Logs (optionnel)
-      if (process.env.LOG_CHANNEL_ID) {
-        const logChannel = await interaction.guild.channels.fetch(process.env.LOG_CHANNEL_ID).catch(() => null);
-        if (logChannel) {
-          const embed = new EmbedBuilder()
-            .setColor(0x00FF00)
-            .setTitle('🔔 Notification de sortie')
-            .setDescription(`**${interaction.user.tag}** a notifié ${userIds.length} participant(s)`)
-            .addFields(
-              { name: 'Message original', value: `[Aller au message](${message.url})`, inline: false },
-              { name: 'Emoji', value: emojiInput, inline: true },
-              { name: 'Salon', value: interaction.channel.toString(), inline: true },
-              { name: 'Utilisateurs notifiés', value: userIds.length.toString(), inline: true }
-            )
-            .setTimestamp();
-
-          await logChannel.send({ embeds: [embed] }).catch(console.error);
+            await logAction(interaction.client, 'Ping participants envoyé', interaction.user, {
+                messageId: msg.id,
+                channelId: channel.id,
+                count: userIds.length
+            });
+        } catch (err) {
+            // logError attend (client, message, user, error) selon utils/logError.js
+            try {
+                await logError(interaction.client, `Erreur commande /ping-participants`, interaction.user, err);
+            } catch (e) {
+                console.error('Erreur lors de logError:', e);
+            }
+            await logAction(interaction.client, 'Erreur lors de /ping-participants', interaction.user, { error: err.message });
+            try { await interaction.reply({ content: "Une erreur est survenue lors de l'exécution de la commande.", ephemeral: true }); } catch {}
         }
-      }
-
-    } catch (error) {
-      console.error("[ping-sortie] Erreur:", error);
-      await logError(interaction.client, `Erreur dans /ping-sortie`, interaction.user, error);
-      if (!interaction.replied) {
-        await interaction.editReply({ content: "❌ Une erreur est survenue.", ephemeral: true }).catch(console.error);
-      }
     }
-  }
 };
