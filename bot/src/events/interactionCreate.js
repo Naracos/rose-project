@@ -1,6 +1,7 @@
 const { Events } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const logAction = require('../utils/actionLogger');
 
 module.exports = {
   name: Events.InteractionCreate,
@@ -29,8 +30,22 @@ module.exports = {
         const command = require(commandFile);
         try {
           await command.execute(interaction);
+
+          // log: succès
+          await logAction(interaction.client, `Commande /${interaction.commandName} exécutée avec succès`, interaction.user, {
+            channelId: interaction.channelId
+          });
         } catch (error) {
-          console.error(`Erreur dans la commande slash ${interaction.commandName}:`, error);
+          // log l'erreur d'exécution (non bloquant)
+          await logAction(interaction.client, `Erreur lors de /${interaction.commandName}`, interaction.user, {
+            channelId: interaction.channelId,
+            error: error.message
+          }).catch(() => {});
+          // réenvoyer l'erreur à ton logger d'erreurs si nécessaire
+          // si tu as un utilitaire logError acceptant (client, message, user, error) :
+          // const { logError } = require('../utils/logError');
+          // await logError(interaction.client, `Erreur commande /${interaction.commandName}`, interaction.user, err);
+          throw error;
         }
       }
     }
