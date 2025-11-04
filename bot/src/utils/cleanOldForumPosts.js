@@ -5,8 +5,8 @@ const { logError } = require('./logError');
 module.exports = {
   name: 'cleanOldForumPosts', // Nom personnalisé pour l'événement
   async execute(client) {
-    if (!process.env.CHANNEL_ID_SORTIES_PONCTUELLES) {
-      console.log("⚠️ CHANNEL_ID_SORTIES_PONCTUELLES non configuré. Annulation du nettoyage.");
+    if (!process.env.SORTIES_PONCTUELLES_ID) {
+      console.log("⚠️ SORTIES_PONCTUELLES_ID non configuré. Annulation du nettoyage.");
       return;
     }
 
