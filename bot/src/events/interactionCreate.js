@@ -1,7 +1,8 @@
 const { Events } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
+const { updateParticipantsList } = require('../handlers/reactions/sortieParticipants');
 const logAction = require('../utils/actionLogger');
+const path = require('path');
+const fs = require('fs');
 
 module.exports = {
   name: Events.InteractionCreate,
@@ -13,10 +14,9 @@ module.exports = {
       for (const file of buttonFiles) {
         const buttonHandler = require(path.join(buttonsPath, file));
         try {
-          if (interaction.customId === buttonHandler.customId) {
-            await buttonHandler.execute(interaction);
-            break; // Arrête après avoir trouvé le bon gestionnaire
-          }
+          // Appel safe : le handler doit early-return s'il n'est pas concerné par ce customId
+          await buttonHandler.execute(interaction);
+          // Ne pas break : on laisse le handler décider s'il gère ou non (handlers existants retournent vite si non concernés)
         } catch (error) {
           console.error(`Erreur dans le bouton ${file}:`, error);
         }

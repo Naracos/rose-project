@@ -1,5 +1,6 @@
 // api/src/utils/db.js
 const { MongoClient } = require('mongodb');
+const mongoose = require('mongoose');
 
 let db = null;
 
@@ -26,5 +27,17 @@ async function connectToDb() {
   }
 }
 
-// Export correct de la fonction
-module.exports = { connectToDb };
+async function connect() {
+  const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/rose_db';
+  console.log('Tentative de connexion à MongoDB:', uri);
+
+  // Configure mongoose (optionnel)
+  mongoose.set('strictQuery', false);
+
+  // Connexion simple — laisse mongoose gérer les options internes
+  await mongoose.connect(uri);
+  console.log('✅ Connecté à MongoDB');
+  return mongoose;
+}
+
+module.exports = { connectToDb, connect };
