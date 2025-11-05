@@ -6,7 +6,7 @@ module.exports = {
   name: "savesortie",
   description: "Enregistre une sortie via l'API",
   async execute(message, args) {
-    //return message.reply("🚫 La commande `savesortie` est actuellement désactivée.");
+    return message.reply("🚫 La commande `savesortie` est actuellement désactivée.");
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
       return message.reply("❌ Permission refusée.");
     }
