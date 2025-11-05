@@ -1,4 +1,4 @@
-const rawUrl = process.env.API_URL || 'http://localhost:3000';
+const rawUrl = process.env.API_URL || 'http://127.0.0.1:3000';
 const API_TOKEN = process.env.API_TOKEN || '';
 
 const API_BASE = (() => {
@@ -9,13 +9,29 @@ const API_BASE = (() => {
 async function request(path, options = {}) {
   const url = `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
   const headers = { 'Content-Type': 'application/json', ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}) };
+
   const res = await fetch(url, { headers, ...options });
   const text = await res.text().catch(() => '');
+
+  // si la réponse ressemble à du HTML, log et remonter une erreur lisible
+  if (text && text.trim().startsWith('<')) {
+    const err = new Error(`API returned HTML (probable 404 ou proxy): ${text.slice(0, 300)}`);
+    err.status = res.status;
+    err.body = text;
+    throw err;
+  }
+
+  // try parse JSON, sinon renvoyer texte
   let body;
-  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+  try { body = text ? JSON.parse(text) : null; } catch {
+    body = text;
+  }
+
   if (!res.ok) {
     const err = new Error(`API ${res.status} ${res.statusText}: ${typeof body === 'string' ? body : JSON.stringify(body)}`);
-    err.status = res.status; err.body = body; throw err;
+    err.status = res.status;
+    err.body = body;
+    throw err;
   }
   return body;
 }
@@ -29,9 +45,7 @@ module.exports = {
   syncFromBot: (messageId, participants) =>
     request('/sorties/sync', { method: 'POST', body: JSON.stringify({ messageId, participants }) }),
   saveSortie: (id, meta) => request(`/sorties/${encodeURIComponent(id)}/save`, { method: 'POST', body: JSON.stringify({ meta }) }),
-  // nouveau : patch partiel
   updateSortie: (id, fields) => request(`/sorties/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(fields) }),
-
   findOrCreateByMessageId: async (messageId, payload) => {
     try { return await module.exports.getSortieByMessageId(messageId); }
     catch (e) {
