@@ -9,16 +9,12 @@ module.exports = {
     // Ignore les réactions des bots et les messages qui ne sont pas dans le forum spécifié
     if (user.bot) return;
 
-    const forumChannelId = process.env.CHANNEL_ID_SORTIES_PONCTUELLES;
+    const forumChannelId = process.env.SORTIES_PONCTUELLES_ID;
     if (!forumChannelId) {
-      console.error("CHANNEL_ID_SORTIES_PONCTUELLES non configuré");
+      console.error("SORTIES_PONCTUELLES_ID non configuré");
       return;
     }
-        if (!forumChannelId) {
-      console.error("CHANNEL_ID_SORTIES_REC non configuré");
-      return;
-    }
-
+    
     // Vérifie que la réaction est dans un thread du forum spécifié
     if (reaction.message.channel.parentId !== forumChannelId) return;
     if (reaction.message.channel.parentId !== forumChannelId) return;

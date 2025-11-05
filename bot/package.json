@@ -9,11 +9,12 @@
   "dependencies": {
     "@discordjs/builders": "^1.11.3",
     "@discordjs/rest": "^2.6.0",
-    "axios": "^1.12.2",
+    "axios": "^1.13.1",
     "discord-api-types": "^0.38.15",
     "discord.js": "^14.22.1",
     "dotenv": "^17.2.1",
     "mongodb": "^6.19.0",
+    "mongoose": "^8.19.2",
     "node-cron": "^4.2.1"
   },
   "devDependencies": {
