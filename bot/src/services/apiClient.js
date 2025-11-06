@@ -1,56 +1,81 @@
-const rawUrl = process.env.API_URL || 'http://127.0.0.1:3000';
-const API_TOKEN = process.env.API_TOKEN || '';
+const BASE_URL = process.env.API_URL || 'http://localhost:3000';
 
-const API_BASE = (() => {
-  const u = rawUrl.replace(/\/+$/, '');
-  return u.endsWith('/api') ? u : `${u}/api`;
-})();
+/**
+ * Effectue une requête HTTP vers l'API
+ */
+async function request(endpoint, options = {}) {
+  // S'assurer que l'endpoint commence par /api si ce n'est pas déjà le cas
+  const normalizedEndpoint = endpoint.startsWith('/api') ? endpoint : `/api${endpoint}`;
+  const url = `${BASE_URL}${normalizedEndpoint}`;
+  
+  console.log(`[DEBUG] API request: ${options.method || 'GET'} ${url}`);
+  
+  const response = await fetch(url, {
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+    ...options
+  });
 
-async function request(path, options = {}) {
-  const url = `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
-  const headers = { 'Content-Type': 'application/json', ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}) };
-
-  const res = await fetch(url, { headers, ...options });
-  const text = await res.text().catch(() => '');
-
-  // si la réponse ressemble à du HTML, log et remonter une erreur lisible
-  if (text && text.trim().startsWith('<')) {
-    const err = new Error(`API returned HTML (probable 404 ou proxy): ${text.slice(0, 300)}`);
-    err.status = res.status;
-    err.body = text;
-    throw err;
+  if (!response.ok) {
+    const text = await response.text();
+    console.error(`[DEBUG] API error ${response.status}: ${text}`);
+    const error = new Error(text);
+    error.status = response.status;
+    error.body = text;
+    throw error;
   }
 
-  // try parse JSON, sinon renvoyer texte
-  let body;
-  try { body = text ? JSON.parse(text) : null; } catch {
-    body = text;
-  }
+  return response.json();
+}
 
-  if (!res.ok) {
-    const err = new Error(`API ${res.status} ${res.statusText}: ${typeof body === 'string' ? body : JSON.stringify(body)}`);
-    err.status = res.status;
-    err.body = body;
-    throw err;
-  }
-  return body;
+/**
+ * Récupère une sortie par son ID
+ */
+async function getSortieById(sortieId) {
+  return request(`/sorties/${sortieId}`);
+}
+
+/**
+ * Récupère une sortie par son messageId
+ */
+async function getSortieByMessageId(messageId) {
+  return request(`/sorties/message/${messageId}`);
+}
+
+/**
+ * Crée une sortie
+ */
+async function createSortie(payload) {
+  return request('/sorties', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+/**
+ * Met à jour une sortie
+ */
+async function updateSortie(sortieId, payload) {
+  return request(`/sorties/${sortieId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
+}
+
+/**
+ * Met à jour les participants d'une sortie
+ */
+async function updateParticipants(sortieId, participants) {
+  return request(`/sorties/${sortieId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ participants })
+  });
 }
 
 module.exports = {
   request,
-  createSortie: (payload) => request('/sorties', { method: 'POST', body: JSON.stringify(payload) }),
-  getSortieByMessageId: (messageId) => request(`/sorties/message/${encodeURIComponent(messageId)}`),
-  updateParticipants: (sortieId, participants) =>
-    request(`/sorties/${encodeURIComponent(sortieId)}/participants`, { method: 'PATCH', body: JSON.stringify({ participants }) }),
-  syncFromBot: (messageId, participants) =>
-    request('/sorties/sync', { method: 'POST', body: JSON.stringify({ messageId, participants }) }),
-  saveSortie: (id, meta) => request(`/sorties/${encodeURIComponent(id)}/save`, { method: 'POST', body: JSON.stringify({ meta }) }),
-  updateSortie: (id, fields) => request(`/sorties/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(fields) }),
-  findOrCreateByMessageId: async (messageId, payload) => {
-    try { return await module.exports.getSortieByMessageId(messageId); }
-    catch (e) {
-      if (e.status === 404) return module.exports.createSortie(payload);
-      throw e;
-    }
-  }
+  getSortieById,
+  getSortieByMessageId,
+  createSortie,
+  updateSortie,
+  updateParticipants
 };

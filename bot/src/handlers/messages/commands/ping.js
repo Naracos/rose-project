@@ -30,6 +30,7 @@ module.exports = {
 
     // === Ping API interne ===
     let internalPing;
+    let apiMongoStatus = "❓ Inconnu";
     const startApi = Date.now();
 
     try {
@@ -38,6 +39,13 @@ module.exports = {
 
       if (response.status === 200) {
         internalPing = `✅ ${Date.now() - startApi} ms`;
+        
+        // Vérifier si l'API retourne le statut MongoDB
+        if (response.data.mongodb) {
+          apiMongoStatus = response.data.mongodb.connected 
+            ? `✅ Connecté` 
+            : `❌ Déconnecté`;
+        }
       } else {
         internalPing = `⚠️ Code ${response.status}`;
       }
@@ -52,8 +60,9 @@ module.exports = {
       .addFields(
         { name: "🤖 Latence du bot", value: `\`${botLatency} ms\``, inline: true },
         { name: "🌐 Latence API Discord", value: `\`${apiLatency} ms\``, inline: true },
-        { name: "🗄️ MongoDB", value: `\`${mongoPing}\``, inline: true },
+        //{ name: "🗄️ MongoDB (Bot)", value: `\`${mongoPing}\``, inline: true },
         { name: "🔗 API interne", value: `\`${internalPing}\``, inline: true },
+        { name: "🗄️ MongoDB (API)", value: `\`${apiMongoStatus}\``, inline: true }
       )
       .setFooter({ text: `Demandé par ${message.author.tag}`, iconURL: message.author.displayAvatarURL() })
       .setTimestamp();

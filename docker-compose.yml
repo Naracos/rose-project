@@ -35,6 +35,29 @@ services:
     networks:
       - backend
 
+  # nouveau service de backup automatique (dump quotidien + purge 7 jours)
+  mongo-backup:
+    image: mongo:6
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    networks:
+      - backend
+    volumes:
+      - ./backups:/backups        # dossier local host pour les archives
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "mkdir -p /backups &&
+       while true; do
+         echo \"[$(date -u)] starting mongodump...\" &&
+         mongodump --host mongo --archive=/backups/backup-$(date +%F_%H%M%S).gz --gzip --db=rose_db &&
+         echo \"[$(date -u)] mongodump finished\" &&
+         # purge fichiers > 7 jours (ajuster -mtime +7 si besoin)
+         find /backups -type f -name 'backup-*.gz' -mtime +7 -print -delete &&
+         # attendre 24h (86400s) avant prochain dump
+         sleep 86400;
+       done"
+
 volumes:
   mongo_data:
 

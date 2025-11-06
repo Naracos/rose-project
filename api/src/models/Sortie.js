@@ -14,9 +14,16 @@ const SortieSchema = new mongoose.Schema({
   savedAt: { type: Date, required: false },
   meta: { type: Object, required: false },
 
-  // nouveaux champs pour le MP organisateur
+  // IDs du MP organisateur
   organizerDmMessageId: { type: String, required: false },
-  organizerDmChannelId: { type: String, required: false }
+  organizerDmChannelId: { type: String, required: false },
+
+  // IDs du tableau dans le thread
+  tableMessageId: { type: String, required: false },
+  tableChannelId: { type: String, required: false },
+
+  // URL de la sortie (pour lien dynamique)
+  sortieUrl: { type: String, required: false }
 }, { timestamps: true });
 
 module.exports = mongoose.models.Sortie || mongoose.model('Sortie', SortieSchema);

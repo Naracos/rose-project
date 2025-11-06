@@ -4,50 +4,81 @@ const logAction = require('../utils/actionLogger');
 const path = require('path');
 const fs = require('fs');
 
-module.exports = {
-  name: Events.InteractionCreate,
-  async execute(interaction) {
-    // Gestion des boutons
-    if (interaction.isButton()) {
-      const buttonsPath = path.join(__dirname, '../handlers/interactions/buttons');
-      const buttonFiles = fs.readdirSync(buttonsPath).filter(file => file.endsWith('.js'));
-      for (const file of buttonFiles) {
-        const buttonHandler = require(path.join(buttonsPath, file));
-        try {
-          // Appel safe : le handler doit early-return s'il n'est pas concerné par ce customId
-          await buttonHandler.execute(interaction);
-          // Ne pas break : on laisse le handler décider s'il gère ou non (handlers existants retournent vite si non concernés)
-        } catch (error) {
-          console.error(`Erreur dans le bouton ${file}:`, error);
-        }
-      }
-    }
-    // Gestion des commandes slash
-    else if (interaction.isCommand()) {
-      const slashCommandsPath = path.join(__dirname, '../handlers/interactions/slashCommands');
-      const commandFile = path.join(slashCommandsPath, `${interaction.commandName}.js`);
-      if (fs.existsSync(commandFile)) {
-        const command = require(commandFile);
-        try {
-          await command.execute(interaction);
+let buttons = new Map();
 
-          // log: succès
-          await logAction(interaction.client, `Commande /${interaction.commandName} exécutée avec succès`, interaction.user, {
-            channelId: interaction.channelId
-          });
-        } catch (error) {
-          // log l'erreur d'exécution (non bloquant)
-          await logAction(interaction.client, `Erreur lors de /${interaction.commandName}`, interaction.user, {
-            channelId: interaction.channelId,
-            error: error.message
-          }).catch(() => {});
-          // réenvoyer l'erreur à ton logger d'erreurs si nécessaire
-          // si tu as un utilitaire logError acceptant (client, message, user, error) :
-          // const { logError } = require('../utils/logError');
-          // await logError(interaction.client, `Erreur commande /${interaction.commandName}`, interaction.user, err);
-          throw error;
+module.exports = {
+  name: 'interactionCreate',
+  async execute(interaction) {
+    try {
+      // Charger les boutons une seule fois (lazy load au premier besoin)
+      if (buttons.size === 0) {
+        const buttonsPath = path.join(__dirname, '..', 'handlers', 'interactions', 'buttons');
+        if (fs.existsSync(buttonsPath)) {
+          for (const file of fs.readdirSync(buttonsPath).filter(f => f.endsWith('.js'))) {
+            try {
+              const button = require(path.join(buttonsPath, file));
+              if (button.customId) {
+                buttons.set(button.customId, button);
+                console.log(`[DEBUG] ✅ Bouton chargé: ${button.customId}`);
+              }
+            } catch (err) {
+              console.error(`[ERROR] Erreur chargement bouton ${file}:`, err.message);
+            }
+          }
         }
       }
+
+      // Slash commands
+      if (interaction.isChatInputCommand()) {
+        console.log(`[DEBUG] Commande reçue: ${interaction.commandName} par ${interaction.user.username}`);
+        const command = interaction.client.commands.get(interaction.commandName);
+        if (!command) {
+          console.error(`[ERROR] Commande non trouvée: ${interaction.commandName}`);
+          return;
+        }
+        await command.execute(interaction);
+      }
+
+      // Select menus
+      if (interaction.isStringSelectMenu()) {
+        console.log(`[DEBUG] Select menu: ${interaction.customId}`);
+        const selectHandler = interaction.client.selectMenus?.get(interaction.customId);
+        if (selectHandler) {
+          await selectHandler.execute(interaction);
+        }
+      }
+
+      // Buttons
+      if (interaction.isButton()) {
+        console.log(`[DEBUG] Bouton cliqué: ${interaction.customId}`);
+        let handler = buttons.get(interaction.customId);
+        if (!handler) {
+          // Chercher par prefix
+          for (const [key, btn] of buttons) {
+            if (interaction.customId.startsWith(key)) {
+              handler = btn;
+              console.log(`[DEBUG] ✅ Bouton trouvé par prefix: ${key}`);
+              break;
+            }
+          }
+        }
+        if (handler) {
+          await handler.execute(interaction);
+        } else {
+          console.warn(`[WARN] Bouton non trouvé: ${interaction.customId} (boutons disponibles: ${Array.from(buttons.keys()).join(', ')})`);
+        }
+      }
+
+      // Modal submissions
+      if (interaction.isModalSubmit()) {
+        console.log(`[DEBUG] Modal: ${interaction.customId}`);
+        const modalHandler = interaction.client.modals?.get(interaction.customId);
+        if (modalHandler) {
+          await modalHandler.execute(interaction);
+        }
+      }
+    } catch (error) {
+      console.error('[ERROR] Erreur globale interactionCreate:', error);
     }
   }
 };

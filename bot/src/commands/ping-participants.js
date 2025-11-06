@@ -1,141 +1,138 @@
 // bot/src/commands/ping-participants.js
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { logError } = require('../utils/logError');
-const logAction = require('../utils/actionLogger');
-
-// Cooldown en secondes (par message de sortie)
-const COOLDOWN_SECONDS = 60;
-const cooldowns = new Map(); // key: messageId -> timestamp (ms)
+const api = require('../services/apiClient');
+const { checkCooldown } = require('../utils/pingParticipantsCooldown');
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('ping-participants')
-        .setDescription('Mentionne tous les membres ayant cliqué sur la réaction ✅ d’un post de sortie.')
-        .addStringOption(opt =>
-            opt.setName('message')
-               .setDescription('ID du message ou lien (optionnel).')
-               .setRequired(false)
-        ),
-    async execute(interaction) {
-        try {
-            const input = interaction.options.getString('message')?.trim();
+  data: new SlashCommandBuilder()
+    .setName('ping-participants')
+    .setDescription('Mentionne tous les membres ayant cliqué sur la réaction ✅ d\'un post de sortie.')
+    .addStringOption(opt =>
+      opt.setName('message')
+        .setDescription('ID du message ou lien (optionnel).')
+        .setRequired(false)
+    ),
+  async execute(interaction) {
+    try {
+      console.log(`[DEBUG] Exécution de la commande : ping-participants par ${interaction.user.username}`);
 
-            await logAction(interaction.client, 'Commande /ping-participants lancée', interaction.user, {
-                input,
-                channelId: interaction.channelId
-            });
+      // Vérifier que c'est utilisé dans un thread
+      if (!interaction.channel?.isThread?.()) {
+        console.log(`[DEBUG] Commande utilisée hors thread`);
+        return await interaction.reply({
+          content: '❌ Cette commande doit être utilisée dans un thread de sortie.',
+          flags: 64
+        }).catch(err => {
+          console.error('Erreur reply:', err.message);
+        });
+      }
 
-            let channel = await interaction.client.channels.fetch(interaction.channelId);
-            if (!channel) {
-                await logAction(interaction.client, 'Impossible de récupérer le canal lors de /ping-participants', interaction.user, { channelId: interaction.channelId });
-                return interaction.reply({ content: "Impossible de récupérer le canal.", ephemeral: true });
-            }
+      // Récupérer le message initial du thread
+      const starterMessage = await interaction.channel.fetchStarterMessage().catch(() => null);
+      if (!starterMessage) {
+        return await interaction.reply({
+          content: '❌ Impossible de récupérer le message initial du thread.',
+          flags: 64
+        }).catch(err => {
+          console.error('Erreur reply:', err.message);
+        });
+      }
 
-            // Si option fournie, tenter d'extraire channelId/messageId depuis le lien ou "channel:message"
-            let messageId = null;
-            if (input) {
-                let tempChannelId = channel.id;
-                const linkMatch = input.match(/\/channels\/(\d+)\/(\d+)\/(\d+)/);
-                if (linkMatch) {
-                    tempChannelId = linkMatch[2];
-                    messageId = linkMatch[3];
-                } else {
-                    const parts = input.split(/[\/:]/).filter(Boolean);
-                    if (parts.length === 2 && /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
-                        tempChannelId = parts[0];
-                        messageId = parts[1];
-                    } else if (/^\d+$/.test(input)) {
-                        messageId = input;
-                    }
-                }
-                if (tempChannelId !== channel.id) {
-                    channel = await interaction.client.channels.fetch(tempChannelId).catch(() => null) || channel;
-                }
-            }
+      // Vérifier cooldown AVANT l'appel API
+      const tempKey = `msg_${starterMessage.id}`;
+      const remaining = checkCooldown(tempKey);
+      if (remaining !== null) {
+        console.log(`[DEBUG] Cooldown actif: ${remaining}s restantes`);
+        return await interaction.reply({
+          content: `⏳ Cooldown actif. Réessaye dans ${remaining}s.`,
+          flags: 64
+        }).catch(err => {
+          console.error('Erreur reply:', err.message);
+        });
+      }
 
-            // Si pas d'ID fourni et qu'on est dans un thread, utiliser le message de base (starter message)
-            let msg = null;
-            if (!messageId && channel.isThread?.()) {
-                msg = await channel.fetchStarterMessage().catch(() => null);
-            }
+      // Récupérer la sortie via l'API
+      let sortie;
+      try {
+        sortie = await api.getSortieByMessageId(starterMessage.id);
+      } catch (err) {
+        console.error('Erreur fetch sortie:', err.message);
+        return await interaction.reply({
+          content: '❌ Sortie introuvable.',
+          flags: 64
+        }).catch(err => {
+          console.error('Erreur reply:', err.message);
+        });
+      }
 
-            // Si on a un messageId (fourni ou extrait), récupérer ce message
-            if (!msg && messageId) {
-                msg = await channel.messages.fetch(messageId).catch(() => null);
-            }
+      // Vérifier que l'utilisateur est l'organisateur
+      if (interaction.user.id !== sortie.organizerId) {
+        console.log(`[DEBUG] Accès refusé: user=${interaction.user.id}, org=${sortie.organizerId}`);
+        return await interaction.reply({
+          content: '❌ Seul l\'organisateur peut utiliser cette commande.',
+          flags: 64
+        }).catch(err => {
+          console.error('Erreur reply:', err.message);
+        });
+      }
 
-            if (!msg) {
-                await logAction(interaction.client, 'Message introuvable pour /ping-participants', interaction.user, { input, channelId: channel?.id });
-                return interaction.reply({ content: "Message introuvable. Fournissez un lien/ID ou exécutez la commande depuis le thread du post.", ephemeral: true });
-            }
+      // Vérifier qu'il y a des participants
+      if (!sortie.participants || sortie.participants.length === 0) {
+        console.log(`[DEBUG] Aucun participant pour sortie ${sortie._id}`);
+        return await interaction.reply({
+          content: '❌ Aucun participant à notifier.',
+          flags: 64
+        }).catch(err => {
+          console.error('Erreur reply:', err.message);
+        });
+      }
 
-            // Vérifier que l'utilisateur est l'organisateur (auteur du message)
-            const organizerId = msg.author?.id;
-            if (!organizerId) {
-                await logAction(interaction.client, 'Impossible de déterminer l\'organisateur du post', interaction.user, { messageId: msg.id });
-                return interaction.reply({ content: "Impossible de déterminer l'organisateur du post.", ephemeral: true });
-            }
-            if (interaction.user.id !== organizerId) {
-                await logAction(interaction.client, 'Accès refusé à /ping-participants (non-organisateur)', interaction.user, { messageId: msg.id, organizerId });
-                return interaction.reply({ content: "Seul l'organisateur du post peut utiliser cette commande.", ephemeral: true });
-            }
+      // Construire l'aperçu des participants
+      const mentions = sortie.participants.map(id => `<@${id}>`).join(', ');
+      const sortieId = sortie._id || sortie.id;
 
-            // Antispam / cooldown par message
-            const now = Date.now();
-            const last = cooldowns.get(msg.id) || 0;
-            const elapsed = (now - last) / 1000;
-            if (elapsed < COOLDOWN_SECONDS) {
-                const remaining = Math.ceil(COOLDOWN_SECONDS - elapsed);
-                await logAction(interaction.client, 'Tentative /ping-participants bloquée par cooldown', interaction.user, { messageId: msg.id, remaining });
-                return interaction.reply({ content: `Veuillez attendre ${remaining}s avant de relancer la commande pour ce post.`, ephemeral: true });
-            }
-            // enregistrer l'utilisation
-            cooldowns.set(msg.id, now);
+      const embed = new EmbedBuilder()
+        .setColor(0x00AEFF)
+        .setTitle('📢 Aperçu du ping participants')
+        .setDescription(`**${sortie.participants.length} participant(s) seront notifié(s) :**\n\n${mentions}`)
+        .setFooter({ text: 'Confirme pour envoyer le ping dans le thread' })
+        .setTimestamp();
 
-            // Optionnel: nettoyer les entrées trop vieilles (pour éviter mémoire infinie)
-            // (simple balayage périodique)
-            for (const [key, ts] of cooldowns) {
-                if ((now - ts) / 1000 > COOLDOWN_SECONDS * 5) { // garder 5x le TTL
-                    cooldowns.delete(key);
-                }
-            }
+      const row = new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId(`confirm_ping_${sortieId}`)
+            .setLabel('✅ Confirmer')
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`cancel_ping_${sortieId}`)
+            .setLabel('❌ Annuler')
+            .setStyle(ButtonStyle.Danger)
+        );
 
-            // Trouver la réaction ✅
-            const reaction = msg.reactions.cache.get('✅') || msg.reactions.cache.find(r => r.emoji?.name === '✅');
-            if (!reaction) {
-                await logAction(interaction.client, 'Aucune réaction ✅ trouvée pour /ping-participants', interaction.user, { messageId: msg.id });
-                return interaction.reply({ content: "Aucune réaction ✅ trouvée sur ce message.", ephemeral: true });
-            }
+      await interaction.reply({
+        embeds: [embed],
+        components: [row],
+        flags: 64
+      });
 
-            // Récupérer les utilisateurs ayant réagi
-            const users = await reaction.users.fetch();
-            const nonBotUsers = users.filter(u => !u.bot);
-            if (nonBotUsers.size === 0) {
-                await logAction(interaction.client, 'Aucun participant (hors bots) pour /ping-participants', interaction.user, { messageId: msg.id });
-                return interaction.reply({ content: "Aucun participant (hors bots) n'a réagi avec ✅.", ephemeral: true });
-            }
-
-            const userIds = nonBotUsers.map(u => u.id);
-            const mentions = nonBotUsers.map(u => `<@${u.id}>`).join(' ');
-            await interaction.reply({
-                content: `Participants (${userIds.length}) :\n${mentions}`,
-                allowedMentions: { users: userIds }
-            });
-
-            await logAction(interaction.client, 'Ping participants envoyé', interaction.user, {
-                messageId: msg.id,
-                channelId: channel.id,
-                count: userIds.length
-            });
-        } catch (err) {
-            // logError attend (client, message, user, error) selon utils/logError.js
-            try {
-                await logError(interaction.client, `Erreur commande /ping-participants`, interaction.user, err);
-            } catch (e) {
-                console.error('Erreur lors de logError:', e);
-            }
-            await logAction(interaction.client, 'Erreur lors de /ping-participants', interaction.user, { error: err.message });
-            try { await interaction.reply({ content: "Une erreur est survenue lors de l'exécution de la commande.", ephemeral: true }); } catch {}
-        }
+      console.log(`[DEBUG] Aperçu ping envoyé pour sortie ${sortieId}`);
+    } catch (err) {
+      console.error(`[ERROR] ❌ Erreur lors de l'exécution de ping-participants :`, err);
+      try {
+        await interaction.reply({
+          content: '❌ Une erreur est survenue.',
+          flags: 64
+        }).catch(() => {});
+      } catch (e) {
+        console.error('Erreur reply fallback:', e.message);
+      }
+      try {
+        await logError(interaction.client, 'Erreur commande ping-participants', interaction.user, err);
+      } catch (e) {
+        console.error('Erreur logError:', e.message);
+      }
     }
+  }
 };

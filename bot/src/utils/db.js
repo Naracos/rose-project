@@ -1,13 +1,21 @@
 // bot/src/utils/db.js
-const mongoose = require('mongoose');
+const { MongoClient } = require('mongodb');
 
-async function connect() {
-  const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/rose_db';
-  console.log('Tentative de connexion à MongoDB (bot):', uri);
-  mongoose.set('strictQuery', false);
-  await mongoose.connect(uri);
-  console.log('✅ Bot connecté à MongoDB');
-  return mongoose;
+let db;
+
+async function connectToDb() {
+  const maxRetries = 3;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const client = new MongoClient(process.env.MONGODB_URI);
+      await client.connect();
+      return client.db();
+    } catch (error) {
+      if (i === maxRetries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Attend 1s
+    }
+  }
 }
 
-module.exports = { connect, mongoose };
+
+module.exports = { connectToDb };

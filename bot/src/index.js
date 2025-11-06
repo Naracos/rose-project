@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, GatewayIntentBits, Partials } = require('discord.js');
-const { REST, Routes } = require('discord.js'); // Ajout pour l'enregistrement des commandes
+const { REST, Routes } = require('discord.js');
 require('dotenv').config();
 const { logError } = require('./utils/logError');
 const cron = require('node-cron');
@@ -54,7 +54,7 @@ const client = new Client({
 
 client.commands = new Collection();
 
-// Chargement des commandes
+// Chargement des commandes (une seule fois)
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
 
@@ -62,45 +62,39 @@ if (commandFiles.length > 0) {
   console.log('[DEBUG] Commandes détectées :');
   console.table(commandFiles.map(file => ({ Fichier: file })));
 
-  // Charger les commandes dans la collection
+  const commands = [];
   for (const file of commandFiles) {
     const filePath = path.join(commandsPath, file);
     const command = require(filePath);
-    if ('data' in command && 'execute' in command) {
+    
+    if (command.data && command.execute) {
       client.commands.set(command.data.name, command);
-      console.log(`[DEBUG] Commande chargée : ${command.data.name}`);
+      commands.push(command.data.toJSON());
+      console.log(`[DEBUG] ✅ Commande chargée: ${command.data.name}`);
     } else {
       console.log(`[DEBUG] ⚠️ La commande ${file} est manquante "data" ou "execute"`);
     }
   }
+
+  // Enregistrement des commandes auprès de Discord
+  const rest = new REST({ version: '10' }).setToken(token);
+  (async () => {
+    try {
+      console.log('[DEBUG] Enregistrement des commandes auprès de Discord...');
+      await rest.put(
+        Routes.applicationGuildCommands(clientId, guildId),
+        { body: commands },
+      );
+      console.log('[DEBUG] ✅ Commandes enregistrées avec succès');
+    } catch (error) {
+      console.error('[DEBUG] ❌ Erreur lors de l\'enregistrement des commandes :', error);
+    }
+  })();
 } else {
   console.log('[DEBUG] Aucune commande détectée.');
 }
 
-// Enregistrement des commandes auprès de Discord
-const commands = [];
-for (const file of commandFiles) {
-  const filePath = path.join(commandsPath, file);
-  const command = require(filePath);
-  commands.push(command.data.toJSON());
-}
-
-const rest = new REST({ version: '10' }).setToken(token);
-
-(async () => {
-  try {
-    console.log('[DEBUG] Enregistrement des commandes auprès de Discord...');
-    await rest.put(
-      Routes.applicationGuildCommands(clientId, guildId),
-      { body: commands },
-    );
-    console.log('[DEBUG] ✅ Commandes enregistrées avec succès');
-  } catch (error) {
-    console.error('[DEBUG] ❌ Erreur lors de l\'enregistrement des commandes :', error);
-  }
-})();
-
-// Chargement des événements
+// Chargement des événements (une seule fois)
 const eventsPath = path.join(__dirname, 'events');
 const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
 
@@ -121,34 +115,8 @@ if (eventFiles.length > 0) {
   console.log('[DEBUG] Aucun événement détecté.');
 }
 
-// Écouteur pour les interactions (ajouté)
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-
-  const command = client.commands.get(interaction.commandName);
-  if (!command) {
-    console.log(`[DEBUG] ⚠️ Commande introuvable : ${interaction.commandName}`);
-    return;
-  }
-
-  try {
-    console.log(`[DEBUG] Exécution de la commande : ${interaction.commandName} par ${interaction.user.tag}`);
-    await command.execute(interaction);
-  } catch (error) {
-    console.error(`[DEBUG] ❌ Erreur lors de l'exécution de ${interaction.commandName} :`, error);
-    await logError(client, `Erreur dans la commande ${interaction.commandName}`, interaction.user, error);
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ content: 'Une erreur est survenue lors de l\'exécution de cette commande.', ephemeral: true });
-    } else {
-      await interaction.reply({ content: 'Une erreur est survenue lors de l\'exécution de cette commande.', ephemeral: true });
-    }
-  }
-});
-
-// Écouteur pour l'événement "clientReady")
-client.once('clientReady', (c) => {
-  console.log(`[DEBUG] Bot connecté en tant que ${c.user.tag}`);
-});
+// ⚠️ NE PAS charger interactionCreate ici (déjà chargé via events/)
+// Les événements de events/ sont chargés automatiquement ci-dessus
 
 // Écouteur pour les erreurs globales
 client.on('error', async error => {

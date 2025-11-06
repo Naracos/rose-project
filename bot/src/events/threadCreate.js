@@ -1,28 +1,49 @@
 // c:\Users\enzob\Desktop\Projet-perso\rose\events\threadCreate.js
-const { Events } = require('discord.js');
+const { Events, EmbedBuilder } = require('discord.js');
 const { logError } = require('../utils/logError');
 const logAction = require('../utils/actionLogger');
+const { cleanPinMessages } = require('../utils/cleanPinMessages');
+const { buildParticipantsEmbed } = require('../handlers/reactions/sortieParticipants');
 const api = require('../services/apiClient');
 
+/**
+ * Event threadCreate
+ * - épingle le message initial du thread
+ * - envoie MP à l'organisateur (SORTIES_PONCTUELLES uniquement)
+ * - crée un embed tableau des participants dans le thread (SORTIES_PONCTUELLES uniquement)
+ * - épingle cet embed
+ * - supprime les messages système d'épinglage
+ */
 module.exports = {
   name: 'threadCreate',
   async execute(thread) {
     try {
-      // Épinglage automatique pour les forums spécifiques
-      if (thread.parentId === process.env.SORTIES_PONCTUELLES_ID || thread.parentId === process.env.SORTIES_RECURRENTES_ID) {
+      const isPonctuelle = thread.parentId === process.env.SORTIES_PONCTUELLES_ID;
+      const isRecurrente = thread.parentId === process.env.SORTIES_RECURRENTES_ID;
+
+      // Épinglage automatique pour les deux forums
+      if (isPonctuelle || isRecurrente) {
         await new Promise(resolve => setTimeout(resolve, 1000));
         const starterMessage = await thread.fetchStarterMessage().catch(() => null);
+
         if (starterMessage) {
-          await starterMessage.pin().catch(() => {});
-          console.log(`Message épinglé dans le thread ${thread.name}`);
+          // Épingler le message initial
+          await starterMessage.pin().catch(err => {
+            console.error('Erreur épinglage message initial:', err);
+          });
+          console.log(`✅ Message épinglé dans le thread ${thread.name}`);
         } else {
-          console.log(`Impossible de trouver le message initial pour le thread ${thread.name}`);
+          console.log(`⚠️ Impossible de trouver le message initial pour le thread ${thread.name}`);
         }
+
+        // Nettoyer les messages système d'épinglage (pour les deux forums)
+        await cleanPinMessages(thread);
       }
 
-      // Gestion des sorties
-      if (thread.parentId === process.env.SORTIES_PONCTUELLES_ID) {
+      // Gestion spécifique des sorties PONCTUELLES uniquement
+      if (isPonctuelle) {
         const starterMessage = await thread.fetchStarterMessage().catch(() => null);
+
         if (!starterMessage) {
           await logAction(thread.client, 'Message initial de sortie introuvable', null, { threadId: thread.id });
           return;
@@ -34,7 +55,7 @@ module.exports = {
           return;
         }
 
-        // Ajouter automatiquement la réaction ✅ au message initial
+        // Ajouter la réaction ✅
         await starterMessage.react('✅').catch(async (err) => {
           await logAction(thread.client, 'Impossible d\'ajouter la réaction ✅', null, {
             threadId: thread.id,
@@ -42,6 +63,7 @@ module.exports = {
           });
         });
 
+        // Créer la sortie via l'API
         const channelId = thread.parentId || null;
         let channelName = thread.parent?.name || null;
         if (!channelName && channelId) {
@@ -60,21 +82,19 @@ module.exports = {
           title
         };
 
-        // Création via API externe
         const sortie = await api.createSortie(payload);
-        console.log('Sortie créée via API id=', sortie._id || sortie.id);
+        console.log('✅ Sortie créée via API id=', sortie._id || sortie.id);
 
-        // Envoi UN SEUL MP initial à l'organisateur et stockage du message DM côté API
+        // Envoyer MP à l'organisateur
         const organizerId = payload.organizerId;
         if (organizerId) {
           try {
             const user = await thread.client.users.fetch(organizerId).catch(() => null);
             if (user) {
               const dm = await user.createDM();
-              const content = `🎉 **Sortie créée !**\nJe suivrai les participants de votre sortie "https://discord.com/channels/${thread.guildId}/${thread.id}".\n\n*La liste sera mise à jour automatiquement à chaque nouvelle réaction ✅.*`;
-              const dmMsg = await dm.send({ content });
+              const initialContent = `🎉 **Nouvelle sortie créée !**\nJe suivrai les participants de votre sortie "https://discord.com/channels/${thread.guildId}/${thread.id}".\n\nLa liste sera mise à jour automatiquement à chaque nouvelle réaction ✅.`;
+              const dmMsg = await dm.send({ content: initialContent });
 
-              // sauvegarde l'id du message DM et du channel DM côté API
               const sortieId = sortie._id || sortie.id;
               if (sortieId) {
                 await api.updateSortie(sortieId, {
@@ -91,17 +111,55 @@ module.exports = {
               });
             }
           } catch (e) {
-            console.error('Impossible d’envoyer le MP organisateur :', e);
+            console.error('Erreur envoi MP organisateur :', e);
           }
+        }
+
+        // Créer et envoyer le tableau des participants dans le thread
+        try {
+          // Utiliser buildParticipantsEmbed avec sortieUrl du thread
+          const participantEmbed = buildParticipantsEmbed({ 
+            title, 
+            sortieUrl: thread.url 
+          }, []);
+
+          const tableMsg = await thread.send({ embeds: [participantEmbed] });
+
+          // Épingler le tableau
+          await tableMsg.pin().catch(err => {
+            console.error('Erreur épinglage tableau:', err);
+          });
+
+          const sortieId = sortie._id || sortie.id;
+          if (sortieId) {
+            // Sauvegarder tableMessageId, tableChannelId ET sortieUrl
+            await api.updateSortie(sortieId, {
+              tableMessageId: tableMsg.id,
+              tableChannelId: thread.id,
+              sortieUrl: thread.url
+            }).catch(err => {
+              console.error('Erreur sauvegarde tableau message dans l\'API:', err);
+            });
+          }
+
+          await logAction(thread.client, 'Tableau des participants créé et épinglé', organizer, {
+            threadId: thread.id,
+            tableMessageId: tableMsg.id
+          });
+
+          // Nettoyer les nouveaux messages d'épinglage (tableau)
+          await cleanPinMessages(thread);
+        } catch (err) {
+          console.error('Erreur création tableau participants:', err);
         }
       }
     } catch (error) {
-      console.error("Erreur lors du traitement du thread :", error);
-      await logError(thread.client, "Erreur lors du traitement du thread", null, error);
+      console.error('Erreur lors du traitement du thread :', error);
+      await logError(thread.client, 'Erreur lors du traitement du thread', null, error);
       await logAction(thread.client, 'Erreur lors de la création d\'une sortie', null, {
         threadId: thread.id,
         error: error.message
       });
     }
-  },
+  }
 };
