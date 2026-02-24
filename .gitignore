@@ -1,34 +1,36 @@
-# Node
-node_modules/
-npm-debug.log
-yarn-error.log
-package-lock.json
-yarn.lock
+/vendor
+*.DS_Store*
+!.env.ci
+!.env.example
+.env*
+.vagrant/*
+.vscode/*
+storage/framework/*
+/.idea
+/nbproject
+/.direnv
 
-# Environnement
-.env
-.env.local
-.env.*.local
-
-# Logs
-logs/
+node_modules
 *.log
+_ide_helper.php
+_ide_helper_models.php
+.phpstorm.meta.php
+.yarn
+public/assets/manifest.json
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# For local development with docker
+# Remove if we ever put the Dockerfile in the repo
+.dockerignore
+docker-compose.yml
 
-# OS
-.DS_Store
-Thumbs.db
+# for image related files
+misc
+.php-cs-fixer.cache
+coverage.xml
+resources/lang/locales.js
+.phpunit.result.cache
 
-# Build
-dist/
-build/
-*.tgz
-
-# MongoDB
-data/
+/public/build
+/public/hot
+result
+docker-compose.yaml

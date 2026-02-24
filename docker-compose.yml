@@ -15,7 +15,7 @@ services:
       dockerfile: docker/api.Dockerfile
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3300:3000"
     environment:
       - MONGODB_URI=mongodb://mongo:27017/rose_db
     depends_on:
@@ -27,13 +27,15 @@ services:
     build:
       context: .
       dockerfile: docker/bot.Dockerfile
+    network_mode: "host"
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     restart: unless-stopped
     environment:
-      - API_URL=http://api:3000
+      - API_URL=http://127.0.0.1:3300
     depends_on:
       - api
-    networks:
-      - backend
 
   # nouveau service de backup automatique (dump quotidien + purge 7 jours)
   mongo-backup:
@@ -64,3 +66,6 @@ volumes:
 networks:
   backend:
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "br-rose"
+      com.docker.network.driver.mtu: "1400"
