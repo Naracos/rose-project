@@ -1,9 +1,10 @@
-FROM node:22-alpine
+FROM node:20-slim
 WORKDIR /usr/src/app
 
-# Installer les dépendances
+# Installer les dépendances avec des réglages de résilience
 COPY bot/package*.json ./
-RUN npm ci --only=production
+RUN npm config set fetch-retry-maxtimeout 600000 && \
+    npm install --omit=dev --no-audit --no-fund
 
 # Copier le code et les dossiers vitaux
 COPY bot/src/ ./src/

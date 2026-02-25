@@ -1,8 +1,9 @@
-FROM node:22-alpine
+FROM node:20-slim
 WORKDIR /usr/src/app
 
 COPY api/package*.json ./
-RUN npm ci --only=production
+RUN npm config set fetch-retry-maxtimeout 600000 && \
+    npm install --omit=dev --no-audit --no-fund
 
 # Copier le serveur et le code
 COPY api/server.js ./
