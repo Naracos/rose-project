@@ -32,3 +32,9 @@ build/
 
 # MongoDB
 data/
+
+# RGPD — Fichiers générés (PDFs signés)
+# Les PDFs sont exclus du dépôt car ils contiennent des données personnelles
+RGPD/data/pdf/
+# Le fichier de suivi consent_log.json est volontairement suivi par git
+# (données anonymisées, IDs Discord uniquement)

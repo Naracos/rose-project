@@ -1,0 +1,9 @@
+{
+    "ignore": [
+        "**/RGPD/data/*.json",
+        "**/RGPD/data/pdf/*.pdf",
+        "**/*.json"
+    ],
+    "ext": "js,mjs,cjs",
+    "verbose": true
+}
