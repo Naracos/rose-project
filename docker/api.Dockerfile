@@ -1,13 +1,13 @@
-FROM node:24-alpine
+FROM node:22-alpine
 WORKDIR /usr/src/app
 
 COPY api/package*.json ./
-RUN npm install
+RUN npm ci --only=production
 
-# Copier le fichier d'entrée server.js (corrige MODULE_NOT_FOUND)
+# Copier le serveur et le code
 COPY api/server.js ./
-
-COPY api/.env ./
 COPY api/src/ ./src/
+COPY api/.env ./
+
 EXPOSE 3000
 CMD ["npm", "start"]

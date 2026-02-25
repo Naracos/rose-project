@@ -36,6 +36,8 @@ services:
       - API_URL=http://127.0.0.1:3300
     depends_on:
       - api
+    volumes:
+      - ./bot/RGPD/data:/usr/src/app/RGPD/data
 
   # nouveau service de backup automatique (dump quotidien + purge 7 jours)
   mongo-backup:
