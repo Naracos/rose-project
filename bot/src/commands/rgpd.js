@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits, AttachmentBuilder, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const { getRgpdText, RGPD_PDF_PATH, EMOJI_ACCEPT, EMOJI_DECLINE } = require('../../RGPD/config');
+const { getRgpdText, getRgpdSetupMessages, RGPD_PDF_PATH, EMOJI_ACCEPT, EMOJI_DECLINE } = require('../../RGPD/config');
 const { logError } = require('../utils/logError');
 
 // Rôles autorisés (admins uniquement)
@@ -108,36 +108,49 @@ module.exports = {
                     );
                 }
 
-                // Construire le message (Texte brut + PDF)
-                const attachment = new AttachmentBuilder(RGPD_PDF_PATH, {
-                    name: 'droit_image_Dionysos-Bordeaux.pdf',
-                });
+                // Récupérer les définitions des messages
+                const setupMessages = getRgpdSetupMessages();
 
-                // Envoyer dans le salon cible
-                let sentMessage;
-                try {
-                    sentMessage = await targetChannel.send({
-                        content: getRgpdText(),
-                        files: [attachment],
-                    });
-                } catch (sendErr) {
-                    console.error('[RGPD] Erreur envoi message :', sendErr);
-                    return interaction.editReply(
-                        `❌ Impossible d'envoyer le message dans <#${targetChannel.id}>.\n` +
-                        'Vérifiez les permissions du bot (Envoyer des messages, Joindre des fichiers).'
-                    );
+                let interactiveMessageId = null;
+                let sentMessagesCount = 0;
+
+                // Envoyer chaque message de la config
+                for (const msgDef of setupMessages) {
+                    try {
+                        // Transformer files pour discord.js (si c'est juste des strings ou déjà des AttachmentBuilder)
+                        // Note: msgDef.files contient déjà des objets {attachment, name}
+                        const sentMessage = await targetChannel.send({
+                            content: msgDef.content,
+                            files: msgDef.files || [],
+                        });
+
+                        sentMessagesCount++;
+
+                        // Si c'est le message interactif, on ajoute les réactions et on garde l'ID
+                        if (msgDef.isInteractive) {
+                            interactiveMessageId = sentMessage.id;
+                            try {
+                                await sentMessage.react(EMOJI_ACCEPT);
+                                await sentMessage.react(EMOJI_DECLINE);
+                            } catch (reactErr) {
+                                console.warn('[RGPD] Impossible d\'ajouter les réactions :', reactErr.message);
+                            }
+                        }
+                    } catch (sendErr) {
+                        console.error(`[RGPD] Erreur envoi message ${sentMessagesCount + 1} :`, sendErr);
+                        return interaction.editReply(
+                            `❌ Erreur lors de l'envoi du message ${sentMessagesCount + 1} dans <#${targetChannel.id}>.\n` +
+                            'Vérifiez les permissions du bot (Envoyer des messages, Joindre des fichiers).'
+                        );
+                    }
                 }
 
-                // Ajouter les réactions ✅ et ❌
-                try {
-                    await sentMessage.react(EMOJI_ACCEPT);
-                    await sentMessage.react(EMOJI_DECLINE);
-                } catch (reactErr) {
-                    console.warn('[RGPD] Impossible d\'ajouter les réactions :', reactErr.message);
+                if (!interactiveMessageId) {
+                    console.warn('[RGPD] Aucun message interactif n\'a été envoyé (vérifiez config.js).');
                 }
 
-                // Sauvegarder l'ID du message dans le .env automatiquement
-                const saved = updateEnvVariable('RGPD_MESSAGE_ID', sentMessage.id);
+                // Sauvegarder l'ID du message interactif dans le .env automatiquement
+                const saved = interactiveMessageId ? updateEnvVariable('RGPD_MESSAGE_ID', interactiveMessageId) : false;
 
                 // Mettre à jour RGPD_MESSAGE_CHANNEL_ID si le salon a été passé manuellement
                 if (channelOption) {
@@ -146,18 +159,21 @@ module.exports = {
 
                 const savedStatus = saved
                     ? '✅ `RGPD_MESSAGE_ID` mis à jour dans le `.env` automatiquement.'
-                    : '⚠️ Impossible de mettre à jour le `.env` automatiquement (lecture seule ?). Copiez manuellement cet ID : `' + sentMessage.id + '`';
+                    : interactiveMessageId
+                        ? '⚠️ Impossible de mettre à jour le `.env` automatiquement (lecture seule ?). Copiez manuellement cet ID : `' + interactiveMessageId + '`'
+                        : '❌ Aucun message interactif détecté. Le système de réactions ne fonctionnera pas.';
 
                 const logChannelLink = process.env.RGPD_LOG_CHANNEL_ID ? `<#${process.env.RGPD_LOG_CHANNEL_ID}>` : '`NON CONFIGURÉ ❌`';
 
                 await interaction.editReply(
-                    `✅ **Message RGPD envoyé** dans <#${targetChannel.id}> avec succès !\n\n` +
-                    `📌 ID du message : \`${sentMessage.id}\`\n` +
+                    `✅ **Système RGPD installé** dans <#${targetChannel.id}> avec succès !\n` +
+                    `📦 **${sentMessagesCount} messages** ont été envoyés.\n\n` +
+                    (interactiveMessageId ? `📌 ID du message principal : \`${interactiveMessageId}\`\n` : '') +
                     `📂 Salon de logs : ${logChannelLink}\n\n` +
                     savedStatus
                 );
 
-                console.log(`[RGPD] Message envoyé par ${interaction.user.username} dans #${targetChannel.name} — ID: ${sentMessage.id}`);
+                console.log(`[RGPD] Setup terminé par ${interaction.user.username} dans #${targetChannel.name}.`);
             }
 
             // /rgpd stats
