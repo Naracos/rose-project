@@ -60,7 +60,7 @@ function getRgpdSetupMessages() {
         // Message 2 : Aide DM & Images 2 et 3
         {
             content:
-                'Pense à autoriser les DM et à désactiver les "demandes de message" pour ce serveur (clique sur le nom du serveur en haut de la liste des salons > **Paramètres de confidentialité**). En cas de souci, ouvre un ticket !\n' +
+                'Pense à autoriser les DM et à désactiver les "demandes de message" pour ce serveur (clique sur le nom du serveur en haut de la liste des salons > **Paramètres de confidentialité**). En cas de souci, ouvre un ticket dans <#1329530277923393666> !\n' +
                 '*(Voir Image 2 et 3 ci-dessous)*',
             files: [
                 { path: HELP_IMAGES.step2, name: 'help_dm_2.png' },
@@ -113,7 +113,7 @@ const DM_DECLINE = () =>
     `- Le staff fera de son mieux pour ne pas te prendre en photo ou te flouter ` +
     `(n'hésite pas à le signaler si tu es contre).\n` +
     `- ⚠️ **Si tu avais précédemment accepté** et que tu souhaites faire retirer des photos ` +
-    `déjà publiées sur nos réseaux, merci de contacter le staff dès maintenant via le système de ticket.`;
+    `déjà publiées sur nos réseaux, merci de contacter le staff dès maintenant via un ticket dans <#1329530277923393666>.`;
 
 // ----------------------------------------------------------------
 // Message DM envoyé lors d'une RÉVOCATION (avait déjà accepté)
@@ -125,7 +125,7 @@ const DM_REVOKE = () =>
     `- Le staff fera de son mieux pour ne pas te prendre en photo ou te flouter ` +
     `(n'hésite pas à le signaler si tu es contre).\n` +
     `- ⚠️ **Attention :** si tu souhaites faire retirer des photos déjà publiées sur nos réseaux, ` +
-    `merci de contacter le staff dès maintenant via le système de ticket.`;
+    `merci de contacter le staff dès maintenant via un ticket dans <#1329530277923393666>.`;
 
 module.exports = {
     EMOJI_ACCEPT,
