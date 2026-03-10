@@ -17,6 +17,7 @@ const api = require('../services/apiClient');
 module.exports = {
   name: 'threadCreate',
   async execute(thread) {
+    return;
     try {
       const isPonctuelle = thread.parentId === process.env.SORTIES_PONCTUELLES_ID;
       const isRecurrente = thread.parentId === process.env.SORTIES_RECURRENTES_ID;
