@@ -7,6 +7,84 @@ module.exports = {
   async execute(message) {
     if (message.author.bot) return;
 
+    // 0. Honeypot (Pot de miel)
+    const honeyPotChannelId = process.env.HONEY_POT;
+    const targetGuildId = process.env.GUILD_ID;
+
+    if (
+      honeyPotChannelId &&
+      targetGuildId &&
+      message.guild &&
+      message.guild.id === targetGuildId &&
+      message.channel.id === honeyPotChannelId
+    ) {
+      const logAction = require('../utils/actionLogger');
+      let msgDeleted = false;
+      let dmSent = false;
+      let banSuccess = false;
+      let banError = null;
+
+      // 1. Supprimer le message
+      try {
+        await message.delete();
+        msgDeleted = true;
+      } catch (err) {
+        console.error("[Honeypot] Erreur suppression message:", err);
+      }
+
+      // 2. Envoyer le MP (DM)
+      try {
+        await message.author.send(
+          `Vous avez été banni de **${message.guild.name}** pour avoir écrit dans le salon anti-spam. Vous devez faire une demande auprès de la modération pour obtenir un déban.`
+        );
+        dmSent = true;
+      } catch (err) {
+        console.error("[Honeypot] Erreur envoi DM:", err);
+      }
+
+      // 3. Bannir le membre
+      try {
+        if (message.member) {
+          await message.member.ban({ reason: "Système automatique : Pot de miel" });
+          banSuccess = true;
+        } else {
+          await message.guild.members.ban(message.author.id, { reason: "Système automatique : Pot de miel" });
+          banSuccess = true;
+        }
+      } catch (err) {
+        try {
+          await message.guild.members.ban(message.author.id, { reason: "Système automatique : Pot de miel" });
+          banSuccess = true;
+        } catch (banErr) {
+          banError = banErr.message || banErr;
+          console.error("[Honeypot] Erreur ban:", banErr);
+        }
+      }
+
+      // 4. Envoyer le log
+      try {
+        await logAction(
+          message.client,
+          `🚨 **Pot de miel activé (Honeypot)**`,
+          message.author,
+          {
+            salonHoneypot: message.channel.name,
+            salonId: message.channel.id,
+            messageContenu: message.content,
+            actions: {
+              suppressionMessage: msgDeleted ? "✅ Réussie" : "❌ Échouée",
+              envoiDM: dmSent ? "✅ Réussi" : "❌ Échoué (DMs fermés ?)",
+              bannissement: banSuccess ? "✅ Réussi" : `❌ Échoué : ${banError}`
+            }
+          }
+        );
+      } catch (logErr) {
+        console.error("[Honeypot] Erreur d'enregistrement du log d'action:", logErr);
+      }
+
+      return;
+    }
+
     // 1. Gestion des commandes (avec préfixe !)
     const PREFIX = '!';
     if (message.content.startsWith(PREFIX)) {
